@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template deploys a VPC with two subnet(Public and Private) within two Availability Zones. It deploys an Internet Gateway, with a default route on the Public subnet. It deploys two NAT Gateways, one in each AZ.
+
+Parameters:
+  nitsPubSubnetCidr:
+    Description: CIDR for the public subnet
+    Type: String
+    Default: 151.48.1.0/24
+
+  nitsPrvtSubnetCidr:
+    Description: CIDR for the private subnet
+    Type: String
+    Default: 151.48.2.0/24
+
+  nitsVpcCidr:
+    Description: CIDR Block for nits VPC
+    Type: String
+    Default: 151.48.0.0/16
+
+  KeyName:
+    Description: Name of an existing EC2 Kaypair to enable connect access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: officepckeypair
+
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - m1.small
+      - m1.large
+    Description: Enter t2.micro, m1.small, or m1.large. Default is t2.micro.
+Resources:
+  nitsVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref nitsVpcCidr
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: nVPC
+
+  nitsIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: nIGW
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref nitsVPC
+      InternetGatewayId: !Ref nitsIGW
+
+  nitsPubSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select ["0", !GetAZs ]
+      VpcId: !Ref nitsVPC
+      CidrBlock: !Ref nitsPubSubnetCidr
+      Tags:
+        - Key: Name
+          Value: nPubSubnet
+
+  nitsPrvtSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select ["1", !GetAZs ]
+      VpcId: !Ref nitsVPC
+      CidrBlock: !Ref nitsPrvtSubnetCidr
+      Tags:
+        - Key: Name
+          Value: nPrvtSubnet
+
+  pubRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref nitsVPC
+      Tags:
+        - Key: Name
+          Value: nPubRT
+
+  pubRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref pubRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref nitsIGW
+
+  nPubRTassoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref nitsPubSubnet
+      RouteTableId: !Ref pubRouteTable
+
+  NATgateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt natPublicEIP.AllocationId
+      SubnetId: !Ref nitsPubSubnet
+      Tags:
+        - Key: Name
+          Value: natgw
+  natPublicEIP:
+    DependsOn: nitsVPC
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  prvtRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref nitsVPC
+      Tags:
+        - Key: Name
+          Value: nPrvtRT
+  prvtRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref prvtRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATgateway
+
+  nPrvtRTassoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref nitsPrvtSubnet
+      RouteTableId: !Ref prvtRouteTable
+
+  nitsSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SSGforNits
+      GroupDescription: Allow connection to EC2 Instance
+      VpcId: !Ref nitsVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: nSSG
+
+  nitsEC2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName:
+        Ref: KeyName
+      DisableApiTermination: true
+      ImageId: ami-0022f774911c1d690
+      SubnetId:
+        Ref: nitsPubSubnet
+      InstanceType:
+        Ref: InstanceTypeParameter
+      Monitoring: false
+      SecurityGroupIds:
+        - Ref: nitsSSG
+      UserData: !Base64 |
+        #!/bin/bash -ex
+        # put your script here
+      Tags:
+        - Key: Name
+          Value: NitsEC2Instance
+# Outputs:
+#   myVPC:
+#     Type: AWS::EC2::VPC
+#     Properties:
+#       CidrBlock: --.--.--.--/--
+#       EnableDnsSupport: true
+#       Tags:
+#         - Key: keyname
+#           Value: value
+# 1stcfntemplate
